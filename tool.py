@@ -158,65 +158,81 @@ class MyWidget(QtWidgets.QWidget):
         qpainter.end()
 
     # Transfer mouse XY to original image XY
-    def caculateXY(self, mouse_x, mouse_y):
-        mouse_x = min(max(mouse_x, self.img_x), self.img_x + self.img_w)
-        mouse_y = min(max(mouse_y, self.img_y), self.img_y + self.img_h)
+    def caculateXY(self, mouse_xy):
+        mouse_x, mouse_y = mouse_xy
 
-        img_x = int((mouse_x - self.img_x) / self.img_scale)
-        img_y = int((mouse_y - self.img_y) / self.img_scale)
+        x, y, w, h = self.img_xywh
+        w_r, h_r, scaler = self.img_shape_before
 
-        img_x = max(min(img_x, self.img_original_w), 0)
-        img_y = max(min(img_y, self.img_original_h), 0)
+        # constraint for mouse position range
+        mouse_x = min(max(mouse_x, x), x + w)
+        mouse_y = min(max(mouse_y, y), y + h)
 
-        return img_x, img_y
+        img_x = int((mouse_x - x) / scaler)
+        img_y = int((mouse_y - y) / scaler)
+
+        # constraint for original image range
+        img_x = max(min(img_x, w_r), 0)
+        img_y = max(min(img_y, h_r), 0)
+
+        return [img_x, img_y]
     
-    def transferXY(self, x1, y1, x2, y2):
+    def xyxy2xywh(self, xyxy):
+        x1, y1, x2, y2 = xyxy
         x, y = min(x1, x2), min(y1, y2)
         w, h = abs(x1 - x2), abs(y1 - y2)
-
-        return x, y, w, h
+        return [x, y, w, h]
 
     # Mouse Event
     def mousePressEvent(self, event):
         if event.button() == 1 and self.label_img.pixmap() is not None:
             if self.btnPersonEnable:
-                self.img_person_x1, self.img_person_y1 = event.x()-IMAGE_X0+10, event.y()-IMAGE_Y0+10
-                self.person_x1, self.person_y1 = self.caculateXY(event.x(), event.y())
+                # mouse position on screen
+                self.person_screen_xyxy[0:2] = (event.x(), event.y())
+                self.person_img_xyxy[0:2] = self.caculateXY((event.x(), event.y()))
 
             if self.btnMotorEnable:
-                self.img_motor_x1, self.img_motor_y1 = event.x()-IMAGE_X0+10, event.y()-IMAGE_Y0+10
+                self.img_motor_x1, self.img_motor_y1 = event.x()-IMAGE_X0, event.y()-IMAGE_Y0
                 self.motor_x1, self.motor_y1 = self.caculateXY(event.x(), event.y())
 
             if self.btnCarEnable:
-                self.img_car_x1, self.img_car_y1 = event.x()-IMAGE_X0+10, event.y()-IMAGE_Y0+10
+                self.img_car_x1, self.img_car_y1 = event.x()-IMAGE_X0, event.y()-IMAGE_Y0
                 self.car_x1, self.car_y1 = self.caculateXY(event.x(), event.y())
 
     
     def mouseReleaseEvent(self, event):
         if event.button() == 1 and self.label_img.pixmap() is not None:
             if self.btnPersonEnable:
-                self.img_person_x2, self.img_person_y2 = event.x()-IMAGE_X0+10, event.y()-IMAGE_Y0+10
-                self.person_x2, self.person_y2 = self.caculateXY(event.x(), event.y())
-
-                self.person_x, self.person_y, self.person_w, self.person_h = \
-                    self.transferXY(self.person_x1, self.person_y1, self.person_x2, self.person_y2)
-
-                self.label_person_xyxy.setText(f'xyxy : ({self.person_x1}, {self.person_y1}), ({self.person_x2}, {self.person_y2})')
-                self.label_person_xywh.setText(f'xywh : {self.person_x}, {self.person_y}, {self.person_w}, {self.person_h}')
+                # Convert mouse position to image position
+                self.person_img_xyxy[2:4] = self.caculateXY((event.x(), event.y()))
+                
+                self.person_img_xywh = self.xyxy2xywh(self.person_img_xyxy)
+                
+                self.label_person_xyxy.setText(f'xyxy : {self.person_img_xyxy}')
+                self.label_person_xywh.setText(f'xywh : {self.person_img_xywh}')
 
                 self.btnPersonEnable = False
                 self.btn_person.setDisabled(False)
 
-                xywh = self.transferXY(self.img_person_x1, self.img_person_y1, self.img_person_x2, self.img_person_y2)
-                self.boundingBox.setPersonParameter(xywh)
+                # Save mouse position for drawing bounding box on screen
+                self.person_screen_xyxy[2:4] = (event.x(), event.y())
+
+                # Add offset
+                self.person_screen_xyxy = ( self.person_screen_xyxy[0]-IMAGE_X0+10,
+                                            self.person_screen_xyxy[1]-IMAGE_Y0+10,
+                                            self.person_screen_xyxy[2]-IMAGE_X0+10,
+                                            self.person_screen_xyxy[3]-IMAGE_Y0+10)
+                
+                self.person_screen_xywh = self.xyxy2xywh(self.person_screen_xyxy)
+                self.boundingBox.setPersonParameter(self.person_screen_xywh)
                 self.boundingBox.paintPerson = True
                 self.boundingBox.update()
 
             if self.btnMotorEnable:
-                self.img_motor_x2, self.img_motor_y2 = event.x()-IMAGE_X0+10, event.y()-IMAGE_Y0+10
+                self.img_motor_x2, self.img_motor_y2 = event.x()-IMAGE_X0, event.y()-IMAGE_Y0
                 self.motor_x2, self.motor_y2 = self.caculateXY(event.x(), event.y())
                 self.motor_x, self.motor_y, self.motor_w, self.motor_h = \
-                    self.transferXY(self.motor_x1, self.motor_y1, self.motor_x2, self.motor_y2)
+                    self.xyxy2xywh(self.motor_x1, self.motor_y1, self.motor_x2, self.motor_y2)
 
                 self.label_motor_xyxy.setText(f'xyxy : ({self.motor_x1}, {self.motor_y1}), ({self.motor_x2}, {self.motor_y2})')
                 self.label_motor_xywh.setText(f'xywh : {self.motor_x}, {self.motor_y}, {self.motor_w}, {self.motor_h}')
@@ -224,16 +240,16 @@ class MyWidget(QtWidgets.QWidget):
                 self.btnMotorEnable = False
                 self.btn_motor.setDisabled(False)
 
-                xywh = self.transferXY(self.img_motor_x1, self.img_motor_y1, self.img_motor_x2, self.img_motor_y2)
+                xywh = self.xyxy2xywh(self.img_motor_x1+10, self.img_motor_y1+10, self.img_motor_x2+10, self.img_motor_y2+10)
                 self.boundingBox.setMotorParameter(xywh)
                 self.boundingBox.paintMotor = True
                 self.boundingBox.update()
 
             if self.btnCarEnable:
-                self.img_car_x2, self.img_car_y2 = event.x()-IMAGE_X0+10, event.y()-IMAGE_Y0+10
+                self.img_car_x2, self.img_car_y2 = event.x()-IMAGE_X0, event.y()-IMAGE_Y0
                 self.car_x2, self.car_y2 = self.caculateXY(event.x(), event.y())
                 self.car_x, self.car_y, self.car_w, self.car_h = \
-                    self.transferXY(self.car_x1, self.car_y1, self.car_x2, self.car_y2)
+                    self.xyxy2xywh(self.car_x1, self.car_y1, self.car_x2, self.car_y2)
 
                 self.label_car_xyxy.setText(f'xyxy : ({self.car_x1}, {self.car_y1}), ({self.car_x2}, {self.car_y2})')
                 self.label_car_xywh.setText(f'xywh : {self.car_x}, {self.car_y}, {self.car_w}, {self.car_h}')
@@ -241,7 +257,7 @@ class MyWidget(QtWidgets.QWidget):
                 self.btnCarEnable = False
                 self.btn_car.setDisabled(False)
 
-                xywh = self.transferXY(self.img_car_x1, self.img_car_y1, self.img_car_x2, self.img_car_y2)
+                xywh = self.xyxy2xywh(self.img_car_x1+10, self.img_car_y1+10, self.img_car_x2+10, self.img_car_y2+10)
                 self.boundingBox.setCarParameter(xywh)
                 self.boundingBox.paintCar = True
                 self.boundingBox.update()
@@ -260,10 +276,8 @@ class MyWidget(QtWidgets.QWidget):
         
     # Button Event
     def btnOpenEvent(self):
-        self.btn_save.setDisabled(True)
-
         # Open file exploer
-        self.filePath , self.filterType = \
+        self.filePath , _ = \
             QtWidgets.QFileDialog.getOpenFileName(filter="Image Files (*.jpg *.png *.jpeg)")
             
         if self.filePath == '' :
@@ -272,55 +286,61 @@ class MyWidget(QtWidgets.QWidget):
         # Read image
         img = cv2.imread(self.filePath)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        original_h, original_w, ch = img.shape   
+        h, w, ch = img.shape   
         
         # Caculate resize scale
-        if original_w/original_h > IMAGE_MAX_WIDTH/IMAGE_MAX_HEIGHT:
-            scale = IMAGE_MAX_WIDTH / original_w
-            new_w = int(original_w * scale)
-            new_h = int(original_h * scale)
+        if w/h > IMAGE_MAX_WIDTH/IMAGE_MAX_HEIGHT:
+            scaler = IMAGE_MAX_WIDTH / w
+            new_w = int(w * scaler)
+            new_h = int(h * scaler)
         else :
-            scale = IMAGE_MAX_HEIGHT / original_h
-            new_w = int(original_w * scale)
-            new_h = int(original_h * scale)
+            scaler = IMAGE_MAX_HEIGHT / h
+            new_w = int(w * scaler)
+            new_h = int(h * scaler)
 
         img = cv2.resize(img, (new_w, new_h))
 
+        # Show image on label
         qimg = QtGui.QImage(img, new_w, new_h, new_w*ch, QtGui.QImage.Format_RGB888)
         canvas = QtGui.QPixmap(IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT).fromImage(qimg)
         self.label_img.setPixmap(canvas)
 
-        self.img_original_w, self.img_original_h = \
-            original_w, original_h
+        self.img_shape_before = (h, w, scaler)
+        self.img_xywh = (int(IMAGE_MAX_WIDTH/2 - new_w/2 + IMAGE_X0), IMAGE_Y0, new_w, new_h)
 
-        self.img_x, self.img_y, self.img_w, self.img_h, self.img_scale = \
-            int(IMAGE_MAX_WIDTH/2 - new_w/2 + IMAGE_X0), IMAGE_Y0, new_w, new_h, scale
+        # Disable save button 
+        self.btn_save.setDisabled(True)
 
     def btnPersonEvent(self):
-        self.btn_save.setDisabled(True)
         self.btnPersonEnable = True
+        self.btn_save.setDisabled(True)
         self.btn_person.setDisabled(True)
 
         self.label_person_xyxy.setText('')
         self.label_person_xywh.setText('')
 
+        self.person_screen_xyxy = [0] * 4
+        self.person_img_xyxy = [0] * 4
+
+        # clear showed bounding box
         self.boundingBox.paintPerson = False
         self.boundingBox.update()
 
     def btnMotorEvent(self):
-        self.btn_save.setDisabled(True)
         self.btnMotorEnable = True
+        self.btn_save.setDisabled(True)
         self.btn_motor.setDisabled(True)
 
         self.label_motor_xyxy.setText('')
         self.label_motor_xywh.setText('')
         
+        # clear showed bounding box
         self.boundingBox.paintMotor = False
         self.boundingBox.update()
 
     def btnCarEvent(self):
-        self.btn_save.setDisabled(True)
         self.btnCarEnable = True
+        self.btn_save.setDisabled(True)
         self.btn_car.setDisabled(True)
 
         self.label_car_xyxy.setText('')
@@ -331,7 +351,7 @@ class MyWidget(QtWidgets.QWidget):
 
     def btnSaveEvent(self):
         with open("detect_area.cfg", "w") as f:
-            f.writelines(f'{self.person_x} {self.person_y} {self.person_w} {self.person_h}\n')
+            f.writelines(*self.person_img_xywh)
             f.writelines(f'{self.motor_x} {self.motor_y} {self.motor_w} {self.motor_h}\n')
             f.writelines(f'{self.car_x} {self.car_y} {self.car_w} {self.car_h}\n')
 
