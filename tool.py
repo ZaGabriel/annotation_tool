@@ -195,8 +195,8 @@ class MyWidget(QtWidgets.QWidget):
         mouse_x, mouse_y = mouse_xy
 
         x, y, w, h = self.img_xywh
-        w_r, h_r, scaler = self.img_shape_before
-
+        h_r, w_r, scaler = self.img_shape_before
+        
         # constraint for mouse position range
         mouse_x = min(max(mouse_x, x), x + w)
         mouse_y = min(max(mouse_y, y), y + h)
@@ -207,7 +207,7 @@ class MyWidget(QtWidgets.QWidget):
         # constraint for original image range
         img_x = max(min(img_x, w_r), 0)
         img_y = max(min(img_y, h_r), 0)
-
+        
         return [img_x, img_y]
     
     def xyxy2xywh(self, xyxy):
@@ -241,7 +241,7 @@ class MyWidget(QtWidgets.QWidget):
         if event.button() == 1 and self.label_img.pixmap() is not None:
             if self.btnPersonEnable:
                 xy = [event.x(), event.y()]
-
+                
                 # Save mouse position for drawing bounding box on screen
                 self.person_screen_xyxy[2:4] = xy
 
