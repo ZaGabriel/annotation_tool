@@ -1,0 +1,7 @@
+# Usage : pip install -r requirements.txt
+
+# test in python3.8 -----------------------------
+
+numpy==1.24.4
+opencv-python==4.1.*
+pyqt5==5.15.*
