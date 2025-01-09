@@ -1,6 +1,7 @@
 from PyQt5 import QtWidgets, QtGui, QtCore
 import cv2
 import sys
+import threading, time
 
 WINDOW_SIZE_WIDTH = 1280
 WINDOW_SIZE_HEIGHT = 720
@@ -10,7 +11,68 @@ IMAGE_MAX_HEIGHT = 500
 IMAGE_X0 = int(WINDOW_SIZE_WIDTH / 2 - IMAGE_MAX_WIDTH / 2)
 IMAGE_Y0 = 50
 
-class MyLabel(QtWidgets.QLabel):
+class Thread(QtCore.QThread):
+    # Frame signal for sending back
+    frame_signal = QtCore.pyqtSignal(QtGui.QImage)
+    # Image info for sending back
+    img_info_signal = QtCore.pyqtSignal(tuple)
+
+    def run(self):
+        self.stopSignal = False
+        cap = cv2.VideoCapture(self.source)
+        while cap.isOpened():
+            # If STOP send blank image and break
+            if self.stopSignal:
+                self.frame_signal.emit(QtGui.QImage())
+                break
+
+            ret, frame = cap.read()
+            if not ret:
+                cap = cv2.VideoCapture(self.source) # Reconnect
+                continue
+
+            # Convery to Qt format
+            frame = self.img2qimg(frame)
+
+            # Send back image and image info
+            self.frame_signal.emit(frame)
+            self.img_info_signal.emit((self.img_shape_before, self.img_xywh))
+
+    def stop(self):
+        self.stopSignal = True
+
+    def img2qimg(self, img):
+        h, w, ch = img.shape   
+        
+        # Caculate resize scale
+        if w/h > IMAGE_MAX_WIDTH/IMAGE_MAX_HEIGHT:
+            scaler = IMAGE_MAX_WIDTH / w
+            new_w = int(w * scaler)
+            new_h = int(h * scaler)
+        else :
+            scaler = IMAGE_MAX_HEIGHT / h
+            new_w = int(w * scaler)
+            new_h = int(h * scaler)
+
+        # Save img parameter
+        self.img_shape_before = (h, w, scaler)
+        self.img_xywh = (int(IMAGE_MAX_WIDTH/2 - new_w/2 + IMAGE_X0), IMAGE_Y0, new_w, new_h)
+
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, (new_w, new_h))
+
+        # Convert to QImage format
+        qimg = QtGui.QImage(img, new_w, new_h, new_w*ch, QtGui.QImage.Format_RGB888)
+        return qimg
+
+    def setSource(self, source):
+        self.source = source
+        cap = cv2.VideoCapture(self.source)
+        ret = cap.isOpened()
+        cap.release()
+        return ret
+
+class BoundingBoxLabel(QtWidgets.QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setStyleSheet("background: transparent;")
@@ -43,7 +105,7 @@ class MyLabel(QtWidgets.QLabel):
 
         qpainter.end()
 
-class MyWidget(QtWidgets.QWidget):
+class App(QtWidgets.QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle('tool')
@@ -52,8 +114,14 @@ class MyWidget(QtWidgets.QWidget):
         self.ui_btn()
         self.ui_img()
         self.parameter_init()
+
+        # Stream thread
+        self.stream_thread = Thread()
+        self.stream_thread.frame_signal.connect(self.setFrame)
+        self.stream_thread.img_info_signal.connect(self.setImgInfo)
         
     def parameter_init(self):
+        self.ocv = True
         self.parameter_person_init()
         self.parameter_motor_init()
         self.parameter_car_init()
@@ -61,6 +129,7 @@ class MyWidget(QtWidgets.QWidget):
 
     def parameter_person_init(self):
         self.btnPersonEnable = False
+        self.btn_person.setDisabled(True)
         self.boundingBox.paintPerson = False
         self.person_screen_xyxy = [0] * 4
         self.person_screen_xywh = [0] * 4
@@ -72,6 +141,7 @@ class MyWidget(QtWidgets.QWidget):
     
     def parameter_motor_init(self):
         self.btnMotorEnable = False
+        self.btn_motor.setDisabled(True)
         self.boundingBox.paintMotor = False
         self.motor_screen_xyxy = [0] * 4
         self.motor_screen_xywh = [0] * 4
@@ -83,6 +153,7 @@ class MyWidget(QtWidgets.QWidget):
     
     def parameter_car_init(self):
         self.btnCarEnable = False
+        self.btn_car.setDisabled(True)
         self.boundingBox.paintCar = False
         self.car_screen_xyxy = [0] * 4
         self.car_screen_xywh = [0] * 4
@@ -96,34 +167,34 @@ class MyWidget(QtWidgets.QWidget):
         # Person
         self.label_person_xyxy = QtWidgets.QLabel(self)
         self.label_person_xyxy.setStyleSheet('font-size:12px;')
-        self.label_person_xyxy.setGeometry(400, 590, 230, 20)
+        self.label_person_xyxy.setGeometry(400, 610, 230, 20)
         self.label_person_xyxy.setAlignment(QtCore.Qt.AlignCenter)
 
         self.label_person_xywh = QtWidgets.QLabel(self)
         self.label_person_xywh.setStyleSheet('font-size:12px;')
-        self.label_person_xywh.setGeometry(400, 610, 230, 20)
+        self.label_person_xywh.setGeometry(400, 630, 230, 20)
         self.label_person_xywh.setAlignment(QtCore.Qt.AlignCenter)
 
         # Motor
         self.label_motor_xyxy = QtWidgets.QLabel(self)
         self.label_motor_xyxy.setStyleSheet('font-size:12px;')
-        self.label_motor_xyxy.setGeometry(650, 590, 230, 20)
+        self.label_motor_xyxy.setGeometry(650, 610, 230, 20)
         self.label_motor_xyxy.setAlignment(QtCore.Qt.AlignCenter)
 
         self.label_motor_xywh = QtWidgets.QLabel(self)
         self.label_motor_xywh.setStyleSheet('font-size:12px;')
-        self.label_motor_xywh.setGeometry(650, 610, 230, 20)
+        self.label_motor_xywh.setGeometry(650, 630, 230, 20)
         self.label_motor_xywh.setAlignment(QtCore.Qt.AlignCenter)
 
         # Car
         self.label_car_xyxy = QtWidgets.QLabel(self)
         self.label_car_xyxy.setStyleSheet('font-size:12px;')
-        self.label_car_xyxy.setGeometry(900, 590, 230, 20)
+        self.label_car_xyxy.setGeometry(900, 610, 230, 20)
         self.label_car_xyxy.setAlignment(QtCore.Qt.AlignCenter)
 
         self.label_car_xywh = QtWidgets.QLabel(self)
         self.label_car_xywh.setStyleSheet('font-size:12px;')
-        self.label_car_xywh.setGeometry(900, 610, 230, 20)
+        self.label_car_xywh.setGeometry(900, 630, 230, 20)
         self.label_car_xywh.setAlignment(QtCore.Qt.AlignCenter)
 
 
@@ -135,49 +206,65 @@ class MyWidget(QtWidgets.QWidget):
         self.label_img = QtWidgets.QLabel(self)
         self.label_img.setAlignment(QtCore.Qt.AlignCenter)
 
-        self.boundingBox = MyLabel(self)
+        self.boundingBox = BoundingBoxLabel(self)
 
         self.img_layout.addWidget(self.label_img, 0, 0)
         self.img_layout.addWidget(self.boundingBox, 0, 0)
         
         
     def ui_btn(self):
-        # Horizonal Layout
-        self.btn_box = QtWidgets.QWidget(self)
-        self.btn_box.setGeometry(140,620,1000,50)
-        self.btn_layout = QtWidgets.QHBoxLayout(self.btn_box)
-        self.btn_layout.setAlignment(QtCore.Qt.AlignVCenter)
+        # Vertical Layout
+        self.btn_vbox = QtWidgets.QWidget(self)
+        self.btn_vbox.setGeometry(150,539,250,200)
+        self.btn_vlayout = QtWidgets.QVBoxLayout(self.btn_vbox)
+        self.btn_vlayout.setAlignment(QtCore.Qt.AlignVCenter)
+
+        # Stream input
+        self.input_stream = QtWidgets.QLineEdit(self)
+        self.btn_vlayout.addWidget(self.input_stream)
+
+        # Open Stream
+        self.btn_open_stream = QtWidgets.QPushButton(self)
+        self.btn_open_stream.setText("Open Stream")
+        self.btn_open_stream.clicked.connect(self.btnOpenStreamEvent)
+        self.btn_vlayout.addWidget(self.btn_open_stream)
 
         # Open Image
-        self.btn_open = QtWidgets.QPushButton(self)
-        self.btn_open.setText("Open")
-        self.btn_open.clicked.connect(self.btnOpenEvent)
-        self.btn_layout.addWidget(self.btn_open)
+        self.btn_open_img = QtWidgets.QPushButton(self)
+        self.btn_open_img.setText("Open Image")
+        self.btn_open_img.clicked.connect(self.btnOpenImageEvent)
+        self.btn_vlayout.addWidget(self.btn_open_img)
 
         # Save
         self.btn_save = QtWidgets.QPushButton(self)
         self.btn_save.setText("Save")
         self.btn_save.clicked.connect(self.btnSaveEvent)
-        self.btn_save.setGeometry(150, 665, 240, 25)
+        self.btn_vlayout.addWidget(self.btn_save)
         self.btn_save.setDisabled(True)
+
+        # Horizonal Layout
+        self.btn_hbox = QtWidgets.QWidget(self)
+        self.btn_hbox.setGeometry(390,570,750,50)
+        self.btn_hlayout = QtWidgets.QHBoxLayout(self.btn_hbox)
+        self.btn_hlayout.setAlignment(QtCore.Qt.AlignVCenter)
 
         # Person
         self.btn_person = QtWidgets.QPushButton(self)
         self.btn_person.setText("Person")
         self.btn_person.clicked.connect(self.btnPersonEvent)
-        self.btn_layout.addWidget(self.btn_person)
+        self.btn_hlayout.addWidget(self.btn_person)
 
         # Motor
         self.btn_motor = QtWidgets.QPushButton(self)
         self.btn_motor.setText("Motorcycle")
         self.btn_motor.clicked.connect(self.btnMotorEvent)
-        self.btn_layout.addWidget(self.btn_motor)
+        self.btn_hlayout.addWidget(self.btn_motor)
 
         # Car
         self.btn_car = QtWidgets.QPushButton(self)
         self.btn_car.setText("Car")
         self.btn_car.clicked.connect(self.btnCarEvent)
-        self.btn_layout.addWidget(self.btn_car)
+        self.btn_hlayout.addWidget(self.btn_car)
 
     # Paint Margin for Image
     def paintEvent(self, event):
@@ -197,14 +284,14 @@ class MyWidget(QtWidgets.QWidget):
         x, y, w, h = self.img_xywh
         h_r, w_r, scaler = self.img_shape_before
         
-        # constraint for mouse position range
+        # Constraint for mouse position range
         mouse_x = min(max(mouse_x, x), x + w)
         mouse_y = min(max(mouse_y, y), y + h)
 
         img_x = int((mouse_x - x) / scaler)
         img_y = int((mouse_y - y) / scaler)
 
-        # constraint for original image range
+        # Constraint for original image range
         img_x = max(min(img_x, w_r), 0)
         img_y = max(min(img_y, h_r), 0)
         
@@ -325,19 +412,41 @@ class MyWidget(QtWidgets.QWidget):
                 self.boundingBox.paintCar = True
                 self.boundingBox.update()
                 self.btn_save.setDisabled(False)
+
+    @QtCore.pyqtSlot(QtGui.QImage)
+    def setFrame(self, frame):
+        self.label_img.setPixmap(QtGui.QPixmap(IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT).fromImage(frame))
+
+    @QtCore.pyqtSlot(tuple)
+    def setImgInfo(self, img_info):
+        self.img_shape_before, self.img_xywh = img_info
+
+    def btnOpenStreamEvent(self):
+        # Clear label
+        self.label_img.clear()
         
-    # Button Event
-    def btnOpenEvent(self):
-        # Open file exploer
-        self.filePath , _ = \
-            QtWidgets.QFileDialog.getOpenFileName(filter="Image Files (*.jpg *.png *.jpeg)")
-            
-        if self.filePath == '' :
+        # Set video source
+        ret = self.stream_thread.setSource(self.input_stream.text())
+        if not ret:
+            self.stream_thread.stop()
             return
 
-        # Read image
-        img = cv2.imread(self.filePath)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        # init parameters
+        self.parameter_init()
+
+        # Enable button 
+        self.btn_save.setDisabled(False)
+        self.btn_person.setDisabled(False)
+        self.btn_motor.setDisabled(False)
+        self.btn_car.setDisabled(False)
+
+        # Start/Stop stream thread
+        if self.stream_thread.isRunning():
+            self.stream_thread.stop()
+        else:
+            self.stream_thread.start()
+
+    def img2qimg(self, img):
         h, w, ch = img.shape   
         
         # Caculate resize scale
@@ -350,38 +459,63 @@ class MyWidget(QtWidgets.QWidget):
             new_w = int(w * scaler)
             new_h = int(h * scaler)
 
-        img = cv2.resize(img, (new_w, new_h))
-
-        # Show image on label
-        qimg = QtGui.QImage(img, new_w, new_h, new_w*ch, QtGui.QImage.Format_RGB888)
-        canvas = QtGui.QPixmap(IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT).fromImage(qimg)
-        self.label_img.setPixmap(canvas)
-
+        # Save img parameter
         self.img_shape_before = (h, w, scaler)
         self.img_xywh = (int(IMAGE_MAX_WIDTH/2 - new_w/2 + IMAGE_X0), IMAGE_Y0, new_w, new_h)
 
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, (new_w, new_h))
+
+        # Convert to Qlabel format
+        qimg = QtGui.QImage(img, new_w, new_h, new_w*ch, QtGui.QImage.Format_RGB888)
+        return qimg
+
+    # Button Event
+    def btnOpenImageEvent(self):
+        # Stop video stream
+        if self.stream_thread.isRunning():
+            self.stream_thread.stop()
+
+        # Open file exploer
+        self.filePath , _ = \
+            QtWidgets.QFileDialog.getOpenFileName(filter="Image Files (*.jpg *.png *.jpeg)")
+            
+        if self.filePath == '' :
+            return
+
+        # Read image
+        img = cv2.imread(self.filePath)
+
+        # Convert to Qt format
+        qimg = self.img2qimg(img)
+
+        # Show image on label
+        self.label_img.setPixmap(QtGui.QPixmap(IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT).fromImage(qimg))
+
+        # init parameters
         self.parameter_init()
         
-        # Disable save button 
+        # Enable button 
         self.btn_save.setDisabled(False)
+        self.btn_person.setDisabled(False)
+        self.btn_motor.setDisabled(False)
+        self.btn_car.setDisabled(False)
 
     def btnPersonEvent(self):
         self.parameter_person_init()
         self.btnPersonEnable = True
         self.btn_save.setDisabled(True)
-        self.btn_person.setDisabled(True)
+        
 
     def btnMotorEvent(self):
         self.parameter_motor_init()
         self.btnMotorEnable = True
         self.btn_save.setDisabled(True)
-        self.btn_motor.setDisabled(True)
 
     def btnCarEvent(self):
         self.parameter_car_init()
         self.btnCarEnable = True
         self.btn_save.setDisabled(True)
-        self.btn_car.setDisabled(True)
 
     def btnSaveEvent(self):
         with open("detect_area.cfg", "w") as f:
@@ -391,6 +525,6 @@ class MyWidget(QtWidgets.QWidget):
 
 if __name__ == '__main__':
     app = QtWidgets.QApplication(sys.argv)
-    Form = MyWidget()
+    Form = App()
     Form.show()
     sys.exit(app.exec_())
