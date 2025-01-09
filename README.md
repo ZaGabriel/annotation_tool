@@ -17,6 +17,12 @@ pip install -r requirements.txt
 python tool.py
 ```
 
-First click the "open" button to open your image file.
+### Image
+Click the "Open Image" button to open your image file.
 
-Next choose classes to draw bounding box. After all you can save the bounding box by clicking "save" button.
+### Video stream
+Paste url to your video stream and click "Open Stream".
+
+By click "Open Stream" again when video stream is running to close video stream.
+
+Next choose classes to draw bounding box. After all you can save the bounding box by clicking "Save" button.
