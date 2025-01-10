@@ -424,11 +424,14 @@ class App(QtWidgets.QWidget):
     def btnOpenStreamEvent(self):
         # Clear label
         self.label_img.clear()
-        
+
         # Set video source
-        ret = self.stream_thread.setSource(self.input_stream.text())
+        src = self.input_stream.text()
+        ret = self.stream_thread.setSource(src)
         if not ret:
             self.stream_thread.stop()
+            self.stream_thread.wait()
+            self.btn_open_stream.setText("Open Stream")
             return
 
         # init parameters
@@ -443,8 +446,11 @@ class App(QtWidgets.QWidget):
         # Start/Stop stream thread
         if self.stream_thread.isRunning():
             self.stream_thread.stop()
+            self.stream_thread.wait()
+            self.btn_open_stream.setText("Open Stream")
         else:
             self.stream_thread.start()
+            self.btn_open_stream.setText("Close Stream")
 
     def img2qimg(self, img):
         h, w, ch = img.shape   
@@ -475,6 +481,11 @@ class App(QtWidgets.QWidget):
         # Stop video stream
         if self.stream_thread.isRunning():
             self.stream_thread.stop()
+            self.stream_thread.wait()
+            self.btn_open_stream.setText("Open Stream")
+
+        # init parameters
+        self.parameter_init()
 
         # Open file exploer
         self.filePath , _ = \
@@ -492,9 +503,6 @@ class App(QtWidgets.QWidget):
         # Show image on label
         self.label_img.setPixmap(QtGui.QPixmap(IMAGE_MAX_WIDTH, IMAGE_MAX_HEIGHT).fromImage(qimg))
 
-        # init parameters
-        self.parameter_init()
-        
         # Enable button 
         self.btn_save.setDisabled(False)
         self.btn_person.setDisabled(False)
